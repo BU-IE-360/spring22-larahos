@@ -1,0 +1,313 @@
+---
+title: Visualization and Analysis of Tourism Income, Exchange Rate and Accommodation Price
+  Index
+author: "Lara Hoş"
+date: "4/14/2022"
+output:
+ rmdformats ::readthedown:
+    number_sections: true
+    fig_width: 7
+    fig_height: 6
+    code_folding: hide
+    
+
+---
+
+# Introduction
+Time series data is defined as the sequence of data collected at adjacent time periods which are ordered chronologially. When a dynamic ecosystem is being examined, it is important to understand the relations between different datasets through some analysis and visualization methods.
+<br>
+
+Within the frame of this project, three main datasets are collected from Central Bank of the Republic of Turkey website: Foreign Visitors Travel Incomes (million USD), US Dollar (Buying) Exchange Rate and Consumer Price Index of Accommodation Services between 2016-2021. Before moving forward with the analysis, it is beneficial to make sure that the research question is parallel with the solid scientific research carried out in the past.
+<br>
+
+Turkey is ranked as 6th in International Tourist Arrivals by Country of Destination and as 14th in International Tourism Receipts with the income of 29.8 USD billion according to UNWTO World Tourism Organization. [1] It is impossible to ignore the importance of tourism for Turkey, approximately covering %15 of the general income, increasing employment opportunities and eliminating foreign trade deficits. According to many researches and insights of tourism workers, tourism revenues are affected by exchange rates due to the fact that %73 of the tourism income is supplied by foreign tourists (TUIK). Since the goods and services gets cheaper for them as the exchange rates go high, increase in demand and eventually tourism income would be expected in return.[2]
+<br>
+
+To summarize, the research question of this study is: *Is there any correlation between accommodation price index, exhange rate and eventually foreign tourist income?* This is a question with a wide perspective which requires further analysis and a general understanding will try to be achieved by using data visualization methods.
+
+# Analysis
+## Manipulation of the Dataset
+
+The datasets retrieved for this project is from the EVDS system, between December 2016 and January 2021 monthly. 72 data points are achieved in return, the data is merged and manipulated in the playground provided by R. 
+<br>
+
+In addition, the data is checked numerically before going into further analysis and it is realized that there is 3 missing data points in Foreign Income dataset, which are April, May and June 2020. These are the months which pandemic started and it is assumed that both tourism and data collection process is interrupted due to pandemic's restrictions. However instead of replacing these cells with 0, a naive approach is used in this scenario and the data is filled by the values of past year's same months. Effects of pandemic is not lost, since its reflection can be seen in the posterior months when we numerically take a look on the dataset .
+
+```{r cars, include=FALSE}
+library(ggplot2)
+library(data.table)
+library(skimr)
+library(GGally)
+library(hrbrthemes)
+library(corrplot)
+library(forecast)
+library(ggcorrplot)
+library(openxlsx)
+library(rmarkdown)
+library(funModeling)
+library(zoo)
+library(xts)
+
+
+
+```
+
+```{r, include=TRUE, warning=FALSE }
+setwd('/Users/larahos/Desktop')
+ForeignIncome=read.xlsx('Foreign-Income.xlsx')
+AccommodationInd=read.xlsx('AccommodationInd.xlsx')
+DollarBuy=read.xlsx('DollarBuy.xlsx')
+
+#no values are assigned to April, May, June 2020 data:so we will use a naive approach and implement 
+#the past years values to these months
+ForeignIncome[52:54, "INCOME"] <- ForeignIncome[40:42, "INCOME"]
+
+#we merged all dataset by using R 
+joined_dt1 <- merge(ForeignIncome, AccommodationInd, 
+                   by = 'Date')
+data <- merge(joined_dt1,DollarBuy, by = 'Date')
+colnames(data) <- c("Date", "Income","Accommodation_Index", "Dollar_Exchange_Rate")
+
+#we will change all dates to year-month format which will be useful when we create a time series object
+data$Date <- as.yearmon(x = data$Date)
+
+#we created a time series object and we will check the numerical summary of the data since time bheaves as an Index rather than an Input in our case
+data_ts <- xts(x = data[-1],order.by = data$Date,frequency = 12)
+
+```
+
+
+## Numerical Analysis of the Dataset
+
+The dataset which will be examined through the research is firstly be analyzed in the numeric sense at the beginning.
+At the first step, the summary of the time series object is printed. It is seen that mean and median values of Accommodation Index and Exchange Rate is so close, which can be concluded that they are likely to show a symmetric distribution in the following steps in contrast to the behavior of Income. The minimum value of income is extremely small, which may be an outcome of pandemics effect. Also there are some signs of seasonal patterns in head and tails of the Income dataset, which is related to the summer tourism in Turkey.
+<br>
+
+Furthermore, it is seen that the increase rate gained a positive acceleration for the last months of 2021. This fast increment is probably not reflected on the price index and foreign income rate due to the natural delay, which starts by the increase of producer price indexes and lastly reflects on the consumer. 
+<br>
+
+All of these relations will be seen in a more clear way during the visualization of the time series data. 
+
+```{r}
+summary(data_ts)
+head(data_ts)
+tail(data_ts)
+
+```
+
+## Visualization of Data
+### Line Plots for Three Dataset
+
+The visulaization process starts by printing the line plots of the datasets to have a general idea about their behaviour for different points in time.
+
+```{r, include=TRUE, warning=FALSE }
+#we will all datasets line plots to have a general idea about their behaviour
+par(mfrow=c(1,3))
+ggplot(data_ts,aes(x=Index))+
+  geom_line(size=1,color="brown",aes(y=Income))+
+  theme_ipsum()+ggtitle("1. Time Series of Foreign Tourism Income")
+
+
+```
+
+
+It is seen that the highest level tourism data has reached is in Summer 2019. After the devastating effects of pandemic on tourism sector with the travel restrictions, lockdowns, social distancing rules, it took some time to tourism sector to meet with the old levels it used to hit.
+<br>
+
+It is also seen that Foreign Tourist Income shows a seasonal pattern, which is likely to increase in May-September period. Summer tourism has a share of approximately %70 when compared to whole tourism income, providing a basis for the behaviour of Income line. (TUIK)
+
+```{r}
+ggplot(data_ts,aes(x=Index))+
+  geom_line(size=1,color="red",aes(y=Accommodation_Index))+
+  theme_ipsum()+ggtitle("2. Time Series of Accommodation Price Index")
+ggplot(data_ts,aes(x=Index))+
+  geom_line(size=1,color="brown",aes(y=Dollar_Exchange_Rate))+
+  theme_ipsum()+ggtitle("3. Time Series of Exchange Rate USD/TRY")
+```
+
+
+Price indexes and dollar exchange rate has an increasing trend, which is not affected significantly by the pandemic. It can be explained by the fact that "whenever the world economy seems riskier, investors gravitate toward greenbacks."[3] Also the harsh interruption of production and service sector which lasted for 3 months minimum has a remarkable effect in the devaluation of Turkish lira.
+
+
+
+```{r}
+indexes<-c("Income","Accomodation", "Dollar" )
+plot(zoo(data_ts), main="Line Plot for 3 Datasets ", xlab="Date (Monthly)",ylab=indexes)
+```
+
+
+All three datas have an increasing trend in 2016-2020. Peak points of Accomodation Price Index and Exchange Rate occured at the same date (i.e. 2018 Summer), which may be a sign of causality.When we compare the peak points of tourism income, an increasing trend is also observable. 
+
+
+### Histograms for Three Dataset
+
+Histograms are useful tools to summarize a dataset within the interval scales in the form of a vertical bar chart. The distributions of the data could be seen below.
+```{r, include=TRUE, warning=FALSE }
+
+plot_num(data[,-1], bins=10)
+
+
+```
+
+
+Data is mostly scattered on the interval, clustered around the lower values. It can be concluded that the data mostly behaves as a normal distribution with some outliers, which are the possible outcomes of pandemic and unstable economical environment of Turkey.
+The distributions of each attribute is shown below:
+
+
+```{r}
+ggplot(data_ts, aes(x=Income)) +
+  geom_histogram(aes(y=..density..), colour="navyblue", fill="lightskyblue", bins = 30)+ 
+  geom_density(alpha=.2, fill="pink", colour="red")
+```
+
+```{r}
+ggplot(data_ts, aes(x=Accommodation_Index)) +
+  geom_histogram(aes(y=..density..), colour="navyblue", fill="lightskyblue", bins = 30)+ 
+  geom_density(alpha=.2, fill="pink", colour="red")
+```
+```{r}
+ggplot(data_ts, aes(x=Dollar_Exchange_Rate)) +
+  geom_histogram(aes(y=..density..), colour="navyblue", fill="lightskyblue", bins = 30)+ 
+  geom_density(alpha=.2, fill="pink", colour="red")
+```
+
+Two peaks are seen when the distribution of Accommodation Index and Dollar Exchange is examined. Income is not distributed in this manner, due to the fact that there exists many more factors affecting Income such as season, political relations. 
+<br>
+
+It would be also useful to analyze Income data grouped by month, since it shows a seasonal pattern and July-September period which is called as third quarter, is the most profitable period of the year. 
+```{r plot}
+ggplot(data_ts, aes(x=Income)) +
+  geom_histogram(aes(y=..density..), colour="navyblue", fill="lightskyblue", bins = 15)+ 
+  geom_density(alpha=.2, fill="pink", colour="red")+
+  facet_wrap(~month(Index), ncol=3)+
+  labs(title = "Monthly Histograms of Foreign Tourist Income 2016-2021", 
+       x = "Total Income (million USD)",
+       y = "Density")
+```
+
+
+Especially for the tourism season of Turkey, data shows a normal distribution wıth some extreme points. High values are not seen for winter and fall.
+
+### Analysis with Normalized Values
+
+The scale of compared data sets can differ from each other, and in this study, million USD, rate and index is examined. When reflected on a line plot without any manipulation, the trend in rate and index stands so small compared to income. Therefore, dataset is normalized by using min-max normalization, which equates the smallest value to 0 and the largest to 1. 
+The line plot figure is shown below:
+
+```{r normalize}
+min_max_norm <- function(x) {
+  (x - min(x)) / (max(x) - min(x))
+}
+normalized_data_ts <- data_ts
+normalized_data_ts$Accommodation_Index <- min_max_norm(data_ts$Accommodation_Index)
+normalized_data_ts$Income <- min_max_norm(data_ts$Income)
+normalized_data_ts$Dollar_Exchange_Rate <- min_max_norm(data_ts$Dollar_Exchange_Rate)
+
+
+
+#we will plot all datas in a single frame to see their behaviour based on their normalized values
+ggplot(normalized_data_ts)+geom_line(aes(x=Index, y=Income, color="Foreign Tourist Income"))+
+  geom_line(aes(x=Index, y=Accommodation_Index, color="Accommodation Price Index" ))+
+  geom_line(aes(x=Index, y=Dollar_Exchange_Rate, color="Dollar Exchange Rate" ))+
+  ggtitle("Comparision of Normalized Values")
+```
+The Foreign Tourist Income shows more fluctation due to seasonal pattern. The rate of increase in Price Index got larger for the past 2 years, due to rapid depreciation of TL and high inflation.
+Even the pandemic got into the form of epidemic, Summer 2021 Income is significantly small than the pre-pandemic days.
+<br>
+
+To get red of the seasonal effect, the trends of the attributes will be compared. Since this project is mainly based on visualization rather than fitting a model, the trendlines of each column are decomposed and visualized. As seen below, the three attributes shows a similar increase pattern until 2020. In 2020, Income shows a sharp fall. 
+```{r}
+new.ts <- ts(normalized_data_ts, freq = 12)
+Trend_Comparison <- decompose(new.ts)$trend
+plot(Trend_Comparison)
+
+```
+
+
+## Correlation Analyses 
+
+In addition to the visual inspection of the time series, calculating correlation is an important step to understand how tight the relationship is between the attributes. As the table shows, Price Index and Exchange Rate has a high correlation value, which is almost 1. They demonstrate a perfect positive correlation type of  a behvaiour and the regarding correlation value is ranked as highly significant with stars. 
+
+
+```{r corr}
+ggpairs(data[,c(2,3,4)])
+```
+```{r colcor}
+ggcorr(data[,c(2,3,4)]) 
+```
+
+It is also useful to compute autocorrelation function when there exists seasonal data, until lag equals to 12. 
+Small lags have a high correlation value, which is a sign of increasing trend in the data set. Also the ACF function is cyclical and that is a typical behavior of seasonal data.
+
+
+```{r acf}
+acf(data_ts$Income, lag=12, main = "Foreign Visitors Travel Incomes Seasonal Analysis")
+
+```
+
+Since similar increase in trend was seen in visualization section, a further analysis will be conducted on Foreign Visitor Travel Income dataset. The negative effects of pandemic hit the tourism season harder than most of other datasets. In the figure below, the months after pandemic is removed from all datasets, to see the correlation in a more stable enviroment.  
+
+```{r aggreg}
+without_covid_data <- data[-(51:72),]
+ggpairs(without_covid_data[,c(2,3,4)])
+
+```
+
+
+As observed in the figures above, the correlation value between Income and other variables are significantly increased, which is parallel to the pre-study research conducted and proves the relationship between dollar rate and tourism income. As the exchange rate gets higher, it becomes more cheaper for a foreign traveler to spend their holiday in Turkey and demand increases, which eventually results in the increase of income. However, as stated before, this is not the only factor affecting the tourism income. 
+
+## A Supportive Analysis Based On Google Trends
+
+Google Trends is a useful tool to analyze the demand based on the total search volume of a keyword. The hypothesis constructed in these study is that tourism demand is related to the dollar exchange rates. Therefore, "Turkey Flight" keyword for the same time period is analyzed. As the demand increases, the volume is supposed to increase. These relation will be analyzed based on the boxplot:
+
+```{r google}
+FlightSearch <- read.xlsx('GoogleTrend.xlsx')
+
+FlightSearch$Date <- as.yearmon(x = FlightSearch$Date)
+
+
+ggplot(FlightSearch, aes(x=Turkey.Flight))+
+  geom_boxplot(color="darkgrey",fill="brown", alpha=.4) +
+    facet_wrap(~year(Date), ncol=3)+
+  theme_ipsum()+
+  ggtitle("Distribution of 'Turkey Flight' Keyword Search")
+
+
+```
+
+It is seen that the median values of boxplots shows a non decreasing pattern through 2016-2019.
+After the effects of pandemic, it got worse but started to increase again.
+<br>
+
+Another keyword used to further analysis is "Turkey Hotel Price". As seen below, it shows a similar pattern with the seasonal sturcture of the tourism income. However there is a remarkable point in this visualization:
+After January 2021, Turkish Lira started to devaluate faster than many other country, and there occured an unexpected in the search volume of the subject keyword, even though it is not the season for summer tourism. The sharp increase in exchange rate resulted in the increase in demand off-season, too. When 2021 November-December data is compared to the 2018 of the respective months, higher values are seen in 2021 than the peak year of tourism in Turkey. This is a subject that relation of causality can be searched. 
+
+
+```{r}
+HotelSearch <- read.xlsx('GoogleTrendsHotelPrice.xlsx')
+HotelSearch$Date <- as.yearmon(x = HotelSearch$Date)
+DollarBuy$Date <- as.yearmon(x=DollarBuy$Date)
+joined_dt2 <- merge(DollarBuy, HotelSearch, 
+                   by = 'Date')
+normalized_joined_dt2 <- joined_dt2
+normalized_joined_dt2$DOLLAR.BUY <- min_max_norm(normalized_joined_dt2$DOLLAR.BUY)
+normalized_joined_dt2$Turkey.Hotel.Price <- min_max_norm(normalized_joined_dt2$Turkey.Hotel.Price)
+
+ggplot(normalized_joined_dt2)+geom_line(aes(x=Date, y=DOLLAR.BUY, color="Dollar Exchange Rate"))+
+  geom_line(aes(x=Date, y=Turkey.Hotel.Price, color="Hotel Price Search" ))
+
+```
+
+
+# Conclusion
+
+In this study, the correlation between Foreign Traveler Income, Dollar Exchange Rate, and Accomodation Price Index are examined. Due to visual inspection of trends, there seems a similar trend of increase in the time series. As correlation test proves, the strong relation between accomodation index and exchange rate is positive and extremely high. Seasonality and pandemic restrictions have a huge effect on Tourism Income, but when the post-pandemic months are excluded from the data, a higher correlation value is achieved with the Exchange Rate.
+<br>
+In the last step of the study, Google Trends data is included and the relations are visually inspected and a new correlation explored even off-season. The analyses conducted in this study is parallel to the references given in the introduction section, keeping mind that correlation does not mean causality all the time. 
+
+# References
+<br>
+[1]https://www.wto.org/english/tratop_e/envir_e/unwto_barom21.pdf
+[2]https://data.tuik.gov.tr/Bulten/Index?p=Turizm-Istatistikleri-IV.Ceyrek:-Ekim-Aralik-ve-Yillik,-2021-45785
+[3]https://www.fpri.org/article/2020/05/the-dominance-of-the-u-s-dollar-during-the-covid-19-pandemic/
+
+
