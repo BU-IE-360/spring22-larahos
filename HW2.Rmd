@@ -1,0 +1,280 @@
+---
+title: "Homework 2"
+author: "Lara Hoş"
+date: "5/13/2022"
+output: rmdformats::readthedown
+    
+  
+---
+# Introduction
+In this study, the quarterly gasoline and diesel sales (in 1000 m3) of a major distributor between 2000 and 2006, and a number of potential factors dataset is given as the subject. Our initial aim is to inspect the relationships between these factors and sales, in addition to the real life determinants like seasonal effects and trends. After the analysis of the given variables, a model will be tried to fit to come up with predictions of the year 2007.
+
+```{r setup, include=FALSE}
+library(rmdformats)
+library(ggplot2)
+library(data.table)
+library(skimr)
+library(GGally)
+library(hrbrthemes)
+library(corrplot)
+library(forecast)
+library(ggcorrplot)
+library(openxlsx)
+library(rmarkdown)
+library(funModeling)
+library(zoo)
+library(xts)
+```
+
+# Visualization and Numerical Analysis
+The first step to our research is manipulation of the dataset to fit the proper format for the time series regression modeling  and have a general understanding of the variables by numerical analysis. 
+<br>
+The variables provided as an input are given below:
+UGS: Unleaded gasoline sale in a given quarter,
+RNUV: An index indicating the rate of new unleaded gasoline using vehicles being added to the traffic in
+a quarter,
+PU: Average price (adjusted with an index) of a liter of unleaded gasoline in a quarter,
+PG: Average price (adjusted with an index) of a liter of diesel gasoline in a quarter,
+NUGV: Number of unleaded gasoline using vehicles in the traffic,
+NDGV: Number of diesel gasoline using vehicles in the traffic (per 1000 people),
+GNPA: Agriculture component of Gross National Product (adjusted with an index),
+GNPC: Commerce component of Gross National Product (adjusted with an index),
+GNP: Grand total for GNP (agriculture, commerce and other components total).
+
+```{r, include=TRUE, warning=FALSE}
+
+salesData <- read.csv("/Users/larahos/Desktop/HW2_data.csv")
+
+colnames(salesData) <- c("Quarter","UGS","RNUV","NLPG","PU","PG","NUGV","NDGV","GNPA","GNPC","GNP")
+
+for(i in c(2,4,7,9,10,11)) {
+  salesData[,i] <- gsub( " ", "", salesData[,i])
+  salesData[,i]=as.numeric(salesData[,i])
+}
+
+salesData[,"Quarter"]<-as.yearqtr(salesData[,"Quarter"],format="%Y _Q %q")
+
+sales_data <- data.table(salesData)
+
+salesDataForecast <- salesData[c(29:32),]
+
+
+```
+
+
+
+```{r pressure, echo=FALSE}
+head(sales_data)
+summary(sales_data)
+str(sales_data)
+```
+## Data Visualization
+
+The graph and the smoothing lines are drawn below to visually inspect the dataset.
+
+```{r, warning=FALSE }
+ggplot(sales_data, aes(x=Quarter, y=UGS)) +
+  geom_line(color="turquoise4") +
+  theme_minimal() + 
+  labs(x="", y="Sales", title="Unleaded Gasoline Sales per Quarter 2000-2006") +
+  theme(plot.title = element_text(hjust=0.5, size=20, face="bold"))+
+  geom_smooth(formula = y ~ x, method = "lm")
+
+
+```
+The dataset shows a decreasing trend over time as seen in the graph above from 2000 to 2007. Furthermore, from the line it can be concluded that the variance is getting relatively smaller around 2003 and gets larger afterwards. 
+To have a better understanding, the datatset is decomposed below: 
+
+
+```{r}
+datats <- ts(sales_data$UGS,freq=4,start=c(2000,1))
+decom_data <- decompose(datats, "additive")
+plot(decom_data)
+```
+When the time series is decomposed, it is seen that there is a significant decreasing trend over time. Also the seasonality effect is seen as having higher values of sales in Q3 each year.
+The dataset is not stationary.
+The aim of this project is basically after including seasonal and trend variables, explaining the random residuals in terms of other variables.
+
+
+## Plotting Autocorrelation
+
+```{r}
+
+acf(sales_data$UGS[1:28])
+```
+
+As illustrated above, there is a significant lag at lag 1. This lag value is a sign of trend, each year being affected by the past years sales. 
+There is a significant lag at lag 4 and relatively high lag at 8, which proves the fact of seasonal effects.
+
+# Model Building for Time Series Regression
+
+As a conclusion of the visual and acf analysis of the dataset, trend and seasonality information is being added to the dataset, in order to use in following steps for model fitting and prediction. 
+
+
+```{r}
+#added trend information
+sales_data[,trend:=1:.N]
+
+#add quarter information to use in seasonality afterwards
+Q=seq(1,4,by=1)
+sales_data=cbind(sales_data,Q)
+```
+
+Trend and seasonality approaches to all dataset as a whole, but also lagged values can be a godd guide to catch autocorrelation and dependency betweeen UGS value. Therefore, we added lagged values Y(t-1) and Y(t-4) to the dataset. 
+
+```{r}
+#add lagged values of lag1 and lag4
+sales_data$lag1 <- NA
+sales_data$lag4 <- NA
+
+sales_data$lag1 <- dplyr::lag(sales_data$UGS)
+sales_data$lag4 <- dplyr::lag(sales_data$UGS, 4L)
+
+```
+
+## Analysis of the Independent Variables
+
+To understand which variables have a significant correlation between, it is logical to print the output by using ggpairs. 
+
+```{r, warning=FALSE}
+ggpairs(sales_data[,-1])
+```
+There is a significant correlation between UGS and
+NLPG, NUGV, GNPA, NDGV; also trend and lag 4 values as expected. PU and PG values are highly correlated with each other. GNPA, GNPC and GNP values are also have a high correlation. The main goal is to include variables that effects UGS the most but have a low correlation internally. 
+
+# Model Fitting
+
+The model will be built step by step, checking significance of variables in each step and adding them in a logical order. Our main goal is to increase adjusted R-squared value while satisfying the assumption of random, independent errors with mean 0 and constant variance. 
+
+```{r}
+model1 <- lm(sales_data$UGS~trend, data = sales_data)
+summary(model1)
+checkresiduals(model1)
+
+```
+The initial model has started with the obvious trend, it has a low R squared value and also autocorrelation is significantly high. To overcome the lag effect, two methods will be tried; lag 4 and seasonality. The one with the higher R-squared value will be chosen to move on for the further models. 
+
+
+
+
+```{r}
+model2 <- lm(sales_data$UGS~trend+lag4, data = sales_data)
+summary(model2)
+checkresiduals(model2)
+```
+
+
+```{r}
+model3 <- lm(sales_data$UGS~trend+as.factor(Q), data = sales_data)
+summary(model3)
+checkresiduals(model3)
+```
+Even though lag 4 value has dealt with autocorrelation better, it reduced the effect of trend and has a lower R squared value. Therefore factorized seasonal values are chosen to move forward. 
+
+
+
+```{r}
+model4 <- lm(sales_data$UGS~trend+as.factor(Q)+ NLPG+PU+PG+NUGV+NDGV+GNPA , data = sales_data)
+summary(model4)
+checkresiduals(model4)
+```
+The variables which showed a high correlation with UGS values are included in the model. As seen in the summary, GNPA, PU and PG do not have a significant effect, therefore they will be eliminated. The main reason behind this could be related to the fact that correlation does not indicate to causality. Even though they are eliminated in this context, that only implies that they are insignificant when they are included as this set of variables. 
+Furthermore, our trend lost its significance, however, it will be held in the model in the following steps. It may have lost its significance due to the fact that decreasing trend is demonstrated by many other independent variables in the model, so it is safer to hold it in at least one more step. Also the model has a high lag 1 value. 
+
+
+```{r}
+model5 <- lm(sales_data$UGS~trend+as.factor(Q)+ NUGV +NDGV, data = sales_data)
+summary(model5)
+checkresiduals(model5)
+```
+When we eliminated the insignificant variables, the R squared value has decreased, so we will try to add each eliminated variables one by one to catch the one resulting in the best improvement. 
+
+
+```{r}
+model6 <- lm(sales_data$UGS~trend+as.factor(Q)+ NUGV + NDGV + PU, data = sales_data)
+summary(model6)
+checkresiduals(model6)
+```
+PU resulted in a good improvement in the model, so it is also included in the model. Lag 1 will tried to be dealt in the following steps. 
+
+
+```{r}
+model7 <- lm(sales_data$UGS~trend+as.factor(Q)+  NDGV +  PU + NUGV + lag1, data = sales_data)
+summary(model7)
+checkresiduals(model7)
+```
+When lag 1 is included, all variables have significance which is a good sign for the validity of the model. However, these much variable pushed the lag 4 higher and adding lag 4 decreased R squared a lot. So we will try some alternative methods to search for a better conclusion.
+
+
+
+
+```{r}
+sales_data$NUGVlag1 <- dplyr::lag(sales_data$NUGV, 1L)
+sales_data$NDGVlag4 <- dplyr::lag(sales_data$NDGV, 4L)
+sales_data$PUlag4 <- dplyr::lag(sales_data$PU, 4L)
+
+sales_data$NLPGlag4 <- dplyr::lag(sales_data$NLPG, 4L)
+sales_data$RNUVlag4 <- dplyr::lag(sales_data$RNUV, 4L)
+sales_data$PUlag1 <- dplyr::lag(sales_data$PU, 1L)
+
+model8 <- lm(sales_data$UGS~trend+as.factor(Q)+  NDGV  +  PU + lag1, data = sales_data)
+summary(model8)
+checkresiduals(model8)
+```
+
+```{r}
+model9 <- lm(sales_data$UGS~trend+as.factor(Q)+  NDGV  +  PU + NUGVlag1 +lag1, data = sales_data)
+summary(model9)
+checkresiduals(model9)
+```
+Different lagged values of variables are tried for pulling autocorrelation below the upper limits. Lagged value of NUGV resulted in a good model, with all regressors being significant variables, relatively low lag4 value and more random looking error. 
+
+# Evaluation of Final Model
+
+Model 9 is chosen to be our final model with significant variables, good R squared value and errors. Below the plots to prove the validity is printed:
+
+```{r}
+finalmodel <- model9
+summary(model9)
+plot(model9)
+```
+
+Residuals vs Fitted plot is almost a straight line, especially for the high values of UGS. Q-Q plot fits the line in most of the points which proves the normal distribution assumption of errors. 
+
+# Forecasts of UGS Values 2007
+
+First, the final model will predict the given dataset of first 28 Quarters, which will be represented on the plot below. Since they move together mostly and it gmade a good job catching the peaks and the trend, the model will be used for predicting the last 4 values. 
+
+```{r}
+
+final_plot <- sales_data
+final_plot[,actual:=UGS]
+final_plot[,predicted:=predict(finalmodel,final_plot)]
+
+ggplot(final_plot ,aes(x=Quarter)) +
+  geom_line(aes(y=UGS,color='actual')) + 
+  geom_line(aes(y=predicted,color='predicted'))+
+  labs(title = "Actual vs. Fitted UGS", x = "Quarter", y = "UGS (in 1000 m3)")
+```
+
+
+Forecasts for the last 4 UGS values are given below:
+
+```{r}
+prediction_set = sales_data[(29:32),c("UGS","NDGV","lag1","NUGVlag1","PU", "trend", "Q")]
+for(i in 1:4) {
+  prediction_set[i,1] = predict(finalmodel,newdata = prediction_set[i,])
+  if(i<4){
+    prediction_set[i+1,"lag1"] = prediction_set[i,1] 
+  }
+}
+
+prediction_set
+
+```
+
+# Conclusion
+In this homework, initially a dataset is analyzed whether it is stationary or not. Then the variables are inspected, several models tried and the one with the highest R squared and better in error distribution is chosen to predict last 4 values. 
+
+
+
