@@ -14,3 +14,10 @@ You can access the R codes from this [RMD file](https://bu-ie-360.github.io/spri
 <br>
 
 You can access the R codes from this [RMD file](https://bu-ie-360.github.io/spring22-larahos/HW2.Rmd)
+
+### Project
+
+[Here](https://bu-ie-360.github.io/spring22-larahos/HW2.html) is my link to Project HTML file.
+<br>
+
+You can access the R codes from this [RMD file]([https://bu-ie-360.github.io/spring22-larahos/HW2.Rmd](https://github.com/BU-IE-360/spring22-larahos/blob/130dddbc6f66238a971eeeb19ef314ffc3d00fad/RMD_Project_Lara_Hos.Rmd))
